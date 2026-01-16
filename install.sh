@@ -101,16 +101,6 @@ install_acme() {
 }
 
 install_nodectl() {
-    # 【关键修改】在一切开始之前，强制停止所有相关服务
-    # 这能释放内存，防止解压时内存溢出导致 SSH 断开
-    # 同时防止文件被占用
-    echo -e "${green}正在停止旧服务以确保安装顺利...${plain}"
-    systemctl stop nodectl >/dev/null 2>&1
-    systemctl disable nodectl >/dev/null 2>&1
-    # 顺便把 XrayR 也停了，防止冲突
-    systemctl stop XrayR >/dev/null 2>&1
-    systemctl disable XrayR >/dev/null 2>&1
-
     if [[ -e /usr/local/nodectl/ ]]; then
         rm /usr/local/nodectl/ -rf
     fi
@@ -119,12 +109,14 @@ install_nodectl() {
 	cd /usr/local/nodectl/
 
     if  [ $# == 0 ] ;then
+        # 修改：检测你的仓库
         last_version=$(curl -Ls "https://api.github.com/repos/hobin66/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
             echo -e "${red}检测 nodectl 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 nodectl 版本安装${plain}"
             exit 1
         fi
         echo -e "检测到 nodectl 最新版本：${last_version}，开始安装"
+        # 修改：下载文件名为 nodectl-linux-xxx.zip
         wget -q -N --no-check-certificate -O /usr/local/nodectl/nodectl-linux.zip https://github.com/hobin66/XrayR/releases/download/${last_version}/nodectl-linux-${arch}.zip
         if [[ $? -ne 0 ]]; then
             echo -e "${red}下载 nodectl 失败，请确保你的服务器能够下载 Github 的文件${plain}"
@@ -145,13 +137,13 @@ install_nodectl() {
         fi
     fi
 
-    # 此时服务已停止，解压操作不再容易触发 OOM
     unzip nodectl-linux.zip
     rm nodectl-linux.zip -f
     chmod +x nodectl
     mkdir /etc/nodectl/ -p
     rm /etc/systemd/system/nodectl.service -f
 
+    # 修改：直接生成 Service 文件，不依赖外部下载
     cat > /etc/systemd/system/nodectl.service <<EOF
 [Unit]
 Description=Nodectl Service
@@ -168,11 +160,11 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    # 这里再次停止确保状态一致
     systemctl stop nodectl
     systemctl enable nodectl
     echo -e "${green}nodectl ${last_version}${plain} 安装完成，已设置开机自启"
 
+    # 复制规则文件
     cp geoip.dat /etc/nodectl/
     cp geosite.dat /etc/nodectl/
 
@@ -192,6 +184,7 @@ EOF
         fi
     fi
 
+    # 复制配置文件模板
     if [[ ! -f /etc/nodectl/dns.json ]]; then
         cp dns.json /etc/nodectl/
     fi
@@ -208,9 +201,11 @@ EOF
         cp rulelist /etc/nodectl/
     fi
 
+    # 修改：下载 nodectl.sh 到 /usr/bin/nodectl 并赋予执行权限
     curl -o /usr/bin/nodectl -Ls https://raw.githubusercontent.com/hobin66/XrayR/master/nodectl.sh
     chmod +x /usr/bin/nodectl
 
+    # 移除旧的兼容
     rm -f /usr/bin/xrayr
 
     cd $cur_dir
