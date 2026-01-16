@@ -85,10 +85,10 @@ install_base() {
 
 # 0: running, 1: not running, 2: not installed
 check_status() {
-    if [[ ! -f /etc/systemd/system/XrayR.service ]]; then
+    if [[ ! -f /etc/systemd/system/nodectl.service ]]; then
         return 2
     fi
-    temp=$(systemctl status XrayR | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
+    temp=$(systemctl status nodectl | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
     if [[ x"${temp}" == x"running" ]]; then
         return 0
     else
@@ -100,24 +100,26 @@ install_acme() {
     curl https://get.acme.sh | sh
 }
 
-install_XrayR() {
-    if [[ -e /usr/local/XrayR/ ]]; then
-        rm /usr/local/XrayR/ -rf
+install_nodectl() {
+    if [[ -e /usr/local/nodectl/ ]]; then
+        rm /usr/local/nodectl/ -rf
     fi
 
-    mkdir /usr/local/XrayR/ -p
-	cd /usr/local/XrayR/
+    mkdir /usr/local/nodectl/ -p
+	cd /usr/local/nodectl/
 
     if  [ $# == 0 ] ;then
-        last_version=$(curl -Ls "https://api.github.com/repos/XrayR-project/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        # 修改：检测你的仓库
+        last_version=$(curl -Ls "https://api.github.com/repos/hobin66/XrayR/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
-            echo -e "${red}检测 XrayR 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 XrayR 版本安装${plain}"
+            echo -e "${red}检测 nodectl 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 nodectl 版本安装${plain}"
             exit 1
         fi
-        echo -e "检测到 XrayR 最新版本：${last_version}，开始安装"
-        wget -q -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux.zip https://github.com/XrayR-project/XrayR/releases/download/${last_version}/XrayR-linux-${arch}.zip
+        echo -e "检测到 nodectl 最新版本：${last_version}，开始安装"
+        # 修改：下载文件名为 nodectl-linux-xxx.zip
+        wget -q -N --no-check-certificate -O /usr/local/nodectl/nodectl-linux.zip https://github.com/hobin66/XrayR/releases/download/${last_version}/nodectl-linux-${arch}.zip
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 XrayR 失败，请确保你的服务器能够下载 Github 的文件${plain}"
+            echo -e "${red}下载 nodectl 失败，请确保你的服务器能够下载 Github 的文件${plain}"
             exit 1
         fi
     else
@@ -126,88 +128,109 @@ install_XrayR() {
 	else
 	    last_version="v"$1
 	fi
-        url="https://github.com/XrayR-project/XrayR/releases/download/${last_version}/XrayR-linux-${arch}.zip"
-        echo -e "开始安装 XrayR ${last_version}"
-        wget -q -N --no-check-certificate -O /usr/local/XrayR/XrayR-linux.zip ${url}
+        url="https://github.com/hobin66/XrayR/releases/download/${last_version}/nodectl-linux-${arch}.zip"
+        echo -e "开始安装 nodectl ${last_version}"
+        wget -q -N --no-check-certificate -O /usr/local/nodectl/nodectl-linux.zip ${url}
         if [[ $? -ne 0 ]]; then
-            echo -e "${red}下载 XrayR ${last_version} 失败，请确保此版本存在${plain}"
+            echo -e "${red}下载 nodectl ${last_version} 失败，请确保此版本存在${plain}"
             exit 1
         fi
     fi
 
-    unzip XrayR-linux.zip
-    rm XrayR-linux.zip -f
-    chmod +x XrayR
-    mkdir /etc/XrayR/ -p
-    rm /etc/systemd/system/XrayR.service -f
-    file="https://github.com/XrayR-project/XrayR-release/raw/master/XrayR.service"
-    wget -q -N --no-check-certificate -O /etc/systemd/system/XrayR.service ${file}
-    #cp -f XrayR.service /etc/systemd/system/
-    systemctl daemon-reload
-    systemctl stop XrayR
-    systemctl enable XrayR
-    echo -e "${green}XrayR ${last_version}${plain} 安装完成，已设置开机自启"
-    cp geoip.dat /etc/XrayR/
-    cp geosite.dat /etc/XrayR/ 
+    unzip nodectl-linux.zip
+    rm nodectl-linux.zip -f
+    chmod +x nodectl
+    mkdir /etc/nodectl/ -p
+    rm /etc/systemd/system/nodectl.service -f
 
-    if [[ ! -f /etc/XrayR/config.yml ]]; then
-        cp config.yml /etc/XrayR/
+    # 修改：直接生成 Service 文件，不依赖外部下载
+    cat > /etc/systemd/system/nodectl.service <<EOF
+[Unit]
+Description=Nodectl Service
+After=network.target nss-lookup.target
+
+[Service]
+User=root
+ExecStart=/usr/local/nodectl/nodectl -c /etc/nodectl/config.yml
+Restart=on-failure
+RestartPreventExitStatus=23
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl stop nodectl
+    systemctl enable nodectl
+    echo -e "${green}nodectl ${last_version}${plain} 安装完成，已设置开机自启"
+
+    # 复制规则文件
+    cp geoip.dat /etc/nodectl/
+    cp geosite.dat /etc/nodectl/
+
+    if [[ ! -f /etc/nodectl/config.yml ]]; then
+        cp config.yml /etc/nodectl/
         echo -e ""
-        echo -e "全新安装，请先参看教程：https://github.com/XrayR-project/XrayR，配置必要的内容"
+        echo -e "全新安装，请先配置 /etc/nodectl/config.yml"
     else
-        systemctl start XrayR
+        systemctl start nodectl
         sleep 2
         check_status
         echo -e ""
         if [[ $? == 0 ]]; then
-            echo -e "${green}XrayR 重启成功${plain}"
+            echo -e "${green}nodectl 重启成功${plain}"
         else
-            echo -e "${red}XrayR 可能启动失败，请稍后使用 XrayR log 查看日志信息，若无法启动，则可能更改了配置格式，请前往 wiki 查看：https://github.com/XrayR-project/XrayR/wiki${plain}"
+            echo -e "${red}nodectl 可能启动失败，请稍后使用 nodectl log 查看日志信息${plain}"
         fi
     fi
 
-    if [[ ! -f /etc/XrayR/dns.json ]]; then
-        cp dns.json /etc/XrayR/
+    # 复制配置文件模板
+    if [[ ! -f /etc/nodectl/dns.json ]]; then
+        cp dns.json /etc/nodectl/
     fi
-    if [[ ! -f /etc/XrayR/route.json ]]; then
-        cp route.json /etc/XrayR/
+    if [[ ! -f /etc/nodectl/route.json ]]; then
+        cp route.json /etc/nodectl/
     fi
-    if [[ ! -f /etc/XrayR/custom_outbound.json ]]; then
-        cp custom_outbound.json /etc/XrayR/
+    if [[ ! -f /etc/nodectl/custom_outbound.json ]]; then
+        cp custom_outbound.json /etc/nodectl/
     fi
-    if [[ ! -f /etc/XrayR/custom_inbound.json ]]; then
-        cp custom_inbound.json /etc/XrayR/
+    if [[ ! -f /etc/nodectl/custom_inbound.json ]]; then
+        cp custom_inbound.json /etc/nodectl/
     fi
-    if [[ ! -f /etc/XrayR/rulelist ]]; then
-        cp rulelist /etc/XrayR/
+    if [[ ! -f /etc/nodectl/rulelist ]]; then
+        cp rulelist /etc/nodectl/
     fi
-    curl -o /usr/bin/XrayR -Ls https://raw.githubusercontent.com/XrayR-project/XrayR-release/master/XrayR.sh
-    chmod +x /usr/bin/XrayR
-    ln -s /usr/bin/XrayR /usr/bin/xrayr # 小写兼容
-    chmod +x /usr/bin/xrayr
+
+    # 修改：下载 nodectl.sh 到 /usr/bin/nodectl 并赋予执行权限
+    curl -o /usr/bin/nodectl -Ls https://raw.githubusercontent.com/hobin66/XrayR/master/nodectl.sh
+    chmod +x /usr/bin/nodectl
+
+    # 移除旧的兼容
+    rm -f /usr/bin/xrayr
+
     cd $cur_dir
     rm -f install.sh
     echo -e ""
-    echo "XrayR 管理脚本使用方法 (兼容使用xrayr执行，大小写不敏感): "
+    echo "nodectl 管理脚本使用方法: "
     echo "------------------------------------------"
-    echo "XrayR                    - 显示管理菜单 (功能更多)"
-    echo "XrayR start              - 启动 XrayR"
-    echo "XrayR stop               - 停止 XrayR"
-    echo "XrayR restart            - 重启 XrayR"
-    echo "XrayR status             - 查看 XrayR 状态"
-    echo "XrayR enable             - 设置 XrayR 开机自启"
-    echo "XrayR disable            - 取消 XrayR 开机自启"
-    echo "XrayR log                - 查看 XrayR 日志"
-    echo "XrayR update             - 更新 XrayR"
-    echo "XrayR update x.x.x       - 更新 XrayR 指定版本"
-    echo "XrayR config             - 显示配置文件内容"
-    echo "XrayR install            - 安装 XrayR"
-    echo "XrayR uninstall          - 卸载 XrayR"
-    echo "XrayR version            - 查看 XrayR 版本"
+    echo "nodectl                    - 显示管理菜单 (功能更多)"
+    echo "nodectl start              - 启动 nodectl"
+    echo "nodectl stop               - 停止 nodectl"
+    echo "nodectl restart            - 重启 nodectl"
+    echo "nodectl status             - 查看 nodectl 状态"
+    echo "nodectl enable             - 设置 nodectl 开机自启"
+    echo "nodectl disable            - 取消 nodectl 开机自启"
+    echo "nodectl log                - 查看 nodectl 日志"
+    echo "nodectl update             - 更新 nodectl"
+    echo "nodectl update x.x.x       - 更新 nodectl 指定版本"
+    echo "nodectl config             - 显示配置文件内容"
+    echo "nodectl install            - 安装 nodectl"
+    echo "nodectl uninstall          - 卸载 nodectl"
+    echo "nodectl version            - 查看 nodectl 版本"
     echo "------------------------------------------"
 }
 
 echo -e "${green}开始安装${plain}"
 install_base
 # install_acme
-install_XrayR $1
+install_nodectl $1
