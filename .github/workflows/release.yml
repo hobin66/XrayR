@@ -1,22 +1,15 @@
 name: Build and Release
 
 on:
+  # 1. 手动触发配置
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/*.yml"
-  pull_request:
-    types: [ opened, synchronize, reopened ]
-    paths:
-      - "**/*.go"
-      - "go.mod"
-      - "go.sum"
-      - ".github/workflows/*.yml"
+    inputs:
+      tag_name:
+        description: 'Release Tag Name (e.g. v1.0.0 or manual-test)'
+        required: true
+        default: 'manual-test'
+  
+  # 2. 保留正式 Release 触发 (兼容性)
   release:
     types: [ published ]
 
@@ -116,19 +109,19 @@ jobs:
       - name: Get project dependencies
         run: go mod download
 
-      # 修改点 1: 编译输出改为 nodectl
+      # 修改点: 编译输出 nodectl
       - name: Build nodectl
         run: |
           mkdir -p build_assets
           go build -v -o build_assets/nodectl -trimpath -ldflags "-s -w -buildid="
 
-      # 修改点 2: Mips 软浮点编译输出改为 nodectl_softfloat
+      # 修改点: Mips 编译输出 nodectl_softfloat
       - name: Build Mips softfloat nodectl
         if: matrix.goarch == 'mips' || matrix.goarch == 'mipsle'
         run: |
           GOMIPS=softfloat go build -v -o build_assets/nodectl_softfloat -trimpath -ldflags "-s -w -buildid="
       
-      # 修改点 3: Windows 下重命名 nodectl 为 nodectl.exe
+      # 修改点: Windows 重命名 nodectl.exe
       - name: Rename Windows nodectl
         if: matrix.goos == 'windows'
         run: |
@@ -163,7 +156,7 @@ jobs:
               [ "$(sha256sum "./build_assets/${FILE_NAME}" | awk -F ' ' '{print $1}')" == "${HASH}" ] || { echo -e "The HASH key of ${FILE_NAME} does not match cloud one."; exit 1; }
             done
       
-      # 修改点 4: 压缩包名称改为 nodectl-xxx.zip
+      # 修改点: 压缩包名 nodectl-xxx.zip
       - name: Create ZIP archive
         shell: bash
         run: |
@@ -178,12 +171,12 @@ jobs:
             openssl dgst -$METHOD $FILE | sed 's/([^)]*)//g' >>$DGST
           done
       
-      # 修改点 5: 文件夹重命名为 nodectl-xxx
+      # 修改点: 文件夹名 nodectl-xxx
       - name: Change the name
         run: |
           mv build_assets nodectl-$ASSET_NAME
       
-      # 修改点 6: 上传 Artifacts 名称改为 nodectl-xxx
+      # 修改点: Artifacts 上传名 nodectl-xxx
       - name: Upload files to Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -191,12 +184,18 @@ jobs:
           path: |
             ./nodectl-${{ steps.get_filename.outputs.ASSET_NAME }}/*
       
-      # 修改点 7: 发布到 Release 的文件匹配改为 nodectl-xxx
+      # =========================================================
+      # 关键修改：发布逻辑
+      # =========================================================
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
-        if: github.event_name == 'release'
+        # 判断条件：如果是 Release 事件 OR 手动触发事件，都运行
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: ./nodectl-${{ steps.get_filename.outputs.ASSET_NAME }}.zip*
-          tag: ${{ github.ref }}
+          # 标签逻辑：手动触发取 inputs.tag_name，Release 触发取 ref
+          tag: ${{ github.event_name == 'workflow_dispatch' && inputs.tag_name || github.ref }}
+          # 允许覆盖（手动调试时非常有用）
+          overwrite: true
           file_glob: true
